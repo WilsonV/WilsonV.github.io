@@ -3,8 +3,6 @@
 /**************
  *   SLICE 1
  **************/
-const bigCoffeeCup = document.querySelector('#big_coffee')
-
 function updateCoffeeView(coffeeQty) {
   document.querySelector('#coffee_counter').innerText = coffeeQty;
   
@@ -46,10 +44,15 @@ function makeProducerDiv(producer) {
   containerDiv.className = 'producer';
   const displayName = makeDisplayNameFromId(producer.id);
   const currentCost = producer.price;
-  const html = `
+  const upgrades = producer.upgrades;
+  let sellButtonDisplay = 'none'
+  if(producer.qty>0)sellButtonDisplay = 'block'
+
+  let html = `
   <div class="producer-column">
     <div class="producer-title">${displayName}</div>
     <button type="button" id="buy_${producer.id}">Buy</button>
+    <button type="button" style="display: ${sellButtonDisplay}" id="sell_${producer.id}">Sell</button>
   </div>
   <div class="producer-column">
     <div>Quantity: ${producer.qty}</div>
@@ -57,6 +60,33 @@ function makeProducerDiv(producer) {
     <div>Cost: ${currentCost} coffee</div>
   </div>
   `;
+
+  if(upgrades.length>0){
+    html = html.concat(
+    `
+    <div class="producer-upgrades">
+      <fieldset>
+        <legend>Upgrades</legend>
+      ${addUpgradeButtons(upgrades)}
+      </fieldset>
+    </div>
+    `);
+  }
+  
+  function addUpgradeButtons(upgradesArr){
+    return upgradesArr.reduce((prev,e) => prev + `<button class="upgrades-button" type="button"
+    ${disableUpgradeButton(e)}
+    id="upgrade_${e.name}">${makeDisplayNameFromId(e.name)}${addCheckMark(e.unlocked)}</button>`,"");
+  }
+
+  function addCheckMark(bool){
+    if(bool)return `✔️`;
+    return ``
+  }
+
+  function disableUpgradeButton(upgrade){
+    if(upgrade.unlocked)return 'disabled'
+  }
   containerDiv.innerHTML = html;
   return containerDiv;
 }
@@ -74,6 +104,15 @@ function renderProducers(data) {
 
 }
 
+function showSellButton(producerId){
+  let element = document.getElementById('sell_'+producerId)
+  element.style = 'display: block'
+}
+
+function hideSellButton(producerId){
+  let element = document.getElementById('sell_'+producerId)
+  element.style = 'display: none'
+}
 /**************
  *   SLICE 3
  **************/
@@ -83,7 +122,6 @@ function getProducerById(data, producerId) {
 }
 
 function canAffordProducer(data, producerId) {
-  //console.log(`Price of ${producerId} is ${getProducerById(data,producerId)}`)
   return data.coffee >= getProducerById(data,producerId).price
 }
 
@@ -95,8 +133,12 @@ function updatePrice(oldPrice) {
   return Math.floor(oldPrice*1.25);
 }
 
+function previousPrice(currentPrice){
+  return Math.ceil(currentPrice/1.25);
+}
+
 function attemptToBuyProducer(data, producerId) {
-  let producerBeingBrought = getProducerById(data,producerId);
+  const producerBeingBrought = getProducerById(data,producerId);
 
   if(canAffordProducer(data,producerId)){
     producerBeingBrought.qty++;
@@ -109,15 +151,95 @@ function attemptToBuyProducer(data, producerId) {
   return false
 }
 
+function attemptToSellProducer(data,producerId){
+  const producerBeingSold = getProducerById(data,producerId);
+
+  if(producerBeingSold.qty>0){
+    producerBeingSold.qty--;
+    producerBeingSold.price = previousPrice(producerBeingSold.price)
+    data.coffee += producerBeingSold.price;
+    data.totalCPS -= producerBeingSold.cps;
+    return true
+  }
+  return false
+}
+
+function producerButtonClick(event,data){
+  if(event.target.id.substring(0,4)==='buy_'){
+    buyButtonClick(event, data);
+  }
+  else if(event.target.id.substring(0,5)==='sell_'){
+    sellButtonClick(event, data);
+  }
+  else if(event.target.id.substring(0,8)==='upgrade_'){
+    upgradeButtonClick(event,data);
+  }
+}
+
 function buyButtonClick(event, data) {
+
   if(event.target.tagName === 'BUTTON'){
-    if(attemptToBuyProducer(data,event.target.id.replaceAll('buy_','') )){
-      document.getElementById('cps').innerText = data.totalCPS
+    const producerBeingBroughtID = event.target.id.substring(4)
+    if(attemptToBuyProducer(data, producerBeingBroughtID)){
+      updateCPSView(data.totalCPS);
       renderProducers(data);
       updateCoffeeView(data.coffee);
+      showSellButton(producerBeingBroughtID);
     }else{
       window.alert('Not enough coffee!')
     }
+  }
+}
+
+function sellButtonClick(event, data) {
+  if(event.target.tagName === 'BUTTON'){
+    const producerBeingSoldID = event.target.id.substring(5)
+    if(window.confirm(`Sell 1 ${makeDisplayNameFromId(producerBeingSoldID)}?`)){
+
+    if(attemptToSellProducer(data,producerBeingSoldID)){
+      updateCPSView(data.totalCPS);
+      renderProducers(data);
+      updateCoffeeView(data.coffee);
+      if(getProducerById(data,producerBeingSoldID).qty<1)hideSellButton(producerBeingSoldID);
+    }else{
+      window.alert('You do not have this producer to sell!');
+    }
+  }
+  }
+}
+
+function getProducerByUpgradeName(data,upgradeName){
+  return data.producers.filter( e => e.upgrades.length>0)
+  .filter(h => h.upgrades.some(j => j.name===upgradeName))[0];
+
+}
+
+function getUpdrageByName(data,upgradeName){
+  return getProducerByUpgradeName(data,upgradeName).upgrades
+    .filter( e => e.name === upgradeName)[0];
+}
+
+function upgradeButtonClick(event,data){
+  if(event.target.tagName === 'BUTTON'){
+    const upgradeName = event.target.id.substring(8);
+    //const producerBeingUpgraded = getProducerByUpgradeName(data,upgradeName)
+    const upgradeBeingUnlocked = getUpdrageByName(data,upgradeName)
+    console.dir(upgradeBeingUnlocked)
+
+    if(data.coffee>=upgradeBeingUnlocked.price){
+
+      if(upgradeBeingUnlocked.unlocked === false){
+        upgradeBeingUnlocked.unlocked = true;
+        data.coffee -= upgradeBeingUnlocked.price;
+      }else{
+        window.alert('This upgrade is already unlocked!')
+      }
+
+    }else{
+      window.alert('Not enough cofee!')
+    }
+    
+    
   }
 }
 
@@ -126,6 +248,16 @@ function tick(data) {
   updateCoffeeView(data.coffee);
   renderProducers(data);
 }
+
+//function to save the data
+function saveData(){
+  localStorage.setItem('coffee_clicker_data', JSON.stringify(window.data))
+  console.log('data has been saved!')
+}
+//stores coffee data every 10 seconds
+setInterval(() => {
+  saveData();
+}, 10000);
 
 /*************************
  *  Start your engines!
@@ -154,11 +286,25 @@ if (typeof process === 'undefined') {
   // Pass in the browser event and our data object to the event listener
   const producerContainer = document.getElementById('producer_container');
   producerContainer.addEventListener('click', event => {
-    buyButtonClick(event, data);
+    producerButtonClick(event, data);
   });
+
+
+  //saves the data once the window is closed as well
+  //  *In case the window is closed in between the 10 second gaps of autosave
+  window.addEventListener('unload', () => saveData());
 
   // Call the tick function passing in the data object once per second
   setInterval(() => tick(data), 1000);
+
+  //update the coffee view from loaded/generated data 
+  updateCoffeeView(data.coffee);
+
+  //update the cps view from loaded/generated data
+  updateCPSView(data.totalCPS);
+ 
+  //render the coffee producers from loaded/generated data
+  renderProducers(data);
 }
 // Meanwhile, if we aren't in a browser and are instead in node
 // we'll need to exports the code written here so we can import and
