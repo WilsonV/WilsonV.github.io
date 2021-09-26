@@ -61,7 +61,7 @@ function makeProducerDiv(producer) {
   </div>
   `;
 
-  if(upgrades.length>0){
+  if(upgrades !== undefined){
     html = html.concat(
     `
     <div class="producer-upgrades">
@@ -73,10 +73,11 @@ function makeProducerDiv(producer) {
     `);
   }
   
-  function addUpgradeButtons(upgradesArr){
-    return upgradesArr.reduce((prev,e) => prev + `<button class="upgrades-button" type="button"
-    ${disableUpgradeButton(e)}
-    id="upgrade_${e.name}">${makeDisplayNameFromId(e.name)}${addCheckMark(e.unlocked)}</button>`,"");
+  function addUpgradeButtons(upgradesObj){
+    return `<button class="upgrades-button" type="button"
+    title='${upgradesObj.description}'
+    ${disableUpgradeButton(upgradesObj)}
+    id="upgrade_${upgradesObj.name}">${makeDisplayNameFromId(upgradesObj.name)}${addCheckMark(upgradesObj.unlocked)}</button>`;
   }
 
   function addCheckMark(bool){
@@ -85,7 +86,7 @@ function makeProducerDiv(producer) {
   }
 
   function disableUpgradeButton(upgrade){
-    if(upgrade.unlocked)return 'disabled'
+    if(upgrade.unlocked || getProducerByUpgradeName(window.data,upgrade.name).qty === 0)return 'disabled'
   }
   containerDiv.innerHTML = html;
   return containerDiv;
@@ -127,6 +128,11 @@ function canAffordProducer(data, producerId) {
 
 function updateCPSView(cps) {
   document.getElementById('cps').innerText = cps;
+}
+
+function updateBonusCPSView(cps) {
+  const bonus_cps = document.getElementById('bonus_cps');
+  if(bonus_cps)bonus_cps.innerText = cps;
 }
 
 function updatePrice(oldPrice) {
@@ -182,6 +188,7 @@ function buyButtonClick(event, data) {
     const producerBeingBroughtID = event.target.id.substring(4)
     if(attemptToBuyProducer(data, producerBeingBroughtID)){
       updateCPSView(data.totalCPS);
+      updateBonusCPSView(calculateBonusCPS(data));
       renderProducers(data);
       updateCoffeeView(data.coffee);
       showSellButton(producerBeingBroughtID);
@@ -198,6 +205,7 @@ function sellButtonClick(event, data) {
 
     if(attemptToSellProducer(data,producerBeingSoldID)){
       updateCPSView(data.totalCPS);
+      updateBonusCPSView(calculateBonusCPS(data));
       renderProducers(data);
       updateCoffeeView(data.coffee);
       if(getProducerById(data,producerBeingSoldID).qty<1)hideSellButton(producerBeingSoldID);
@@ -209,50 +217,87 @@ function sellButtonClick(event, data) {
 }
 
 function getProducerByUpgradeName(data,upgradeName){
-  return data.producers.filter( e => e.upgrades.length>0)
-  .filter(h => h.upgrades.some(j => j.name===upgradeName))[0];
+  return data.producers.filter( e => e.upgrades !== undefined)
+  .filter(h => h.upgrades.name===upgradeName)[0];
 
 }
 
 function getUpdrageByName(data,upgradeName){
-  return getProducerByUpgradeName(data,upgradeName).upgrades
-    .filter( e => e.name === upgradeName)[0];
+  return getProducerByUpgradeName(data,upgradeName).upgrades;
+}
+
+function canAffordUpgrade(data,price){
+  if(data.coffee>=price){
+    return true;
+  }
+  else{
+    window.alert('Not enough cofee!')
+    return false;
+  }
+}
+
+function confirmUpgradePurchase(upgrade){
+  return window.confirm(`Purchase ${makeDisplayNameFromId(upgrade.name)} for ${upgrade.price} coffee?\n\n
+  ${makeDisplayNameFromId(upgrade.name)}: ${upgrade.description}`);
 }
 
 function upgradeButtonClick(event,data){
   if(event.target.tagName === 'BUTTON'){
+
     const upgradeName = event.target.id.substring(8);
-    //const producerBeingUpgraded = getProducerByUpgradeName(data,upgradeName)
     const upgradeBeingUnlocked = getUpdrageByName(data,upgradeName)
-    console.dir(upgradeBeingUnlocked)
 
-    if(data.coffee>=upgradeBeingUnlocked.price){
-
+    
+    if(confirmUpgradePurchase(upgradeBeingUnlocked) && canAffordUpgrade(data,upgradeBeingUnlocked.price)){
       if(upgradeBeingUnlocked.unlocked === false){
         upgradeBeingUnlocked.unlocked = true;
         data.coffee -= upgradeBeingUnlocked.price;
+        updateCPSView(data.totalCPS);
+        updateBonusCPSView(calculateBonusCPS(data));
+        renderProducers(data);
+        updateCoffeeView(data.coffee);
       }else{
         window.alert('This upgrade is already unlocked!')
       }
-
-    }else{
-      window.alert('Not enough cofee!')
     }
-    
     
   }
 }
 
+function getUnlockedUpgrades(data){ 
+  return data.producers.filter( e => e.upgrades !== undefined)
+  .map( f => f.upgrades)
+  .filter(g => g.unlocked)
+}
+
 function tick(data) {
+  //add regular cps
   data.coffee += data.totalCPS
+  
+  //add bonus cps
+  data.coffee += calculateBonusCPS(data)
   updateCoffeeView(data.coffee);
   renderProducers(data);
 }
 
+function calculateBonusCPS(data){
+    const upgradesAvailable = getUnlockedUpgrades(data);
+    return upgradesAvailable.reduce( (prev,current) => {
+    const producerWithUpgrade = getProducerByUpgradeName(data,current.name)
+    return prev + (producerWithUpgrade.cps * current.bonus) * producerWithUpgrade.qty;
+    
+   },0)
+}
+
 //function to save the data
 function saveData(){
-  localStorage.setItem('coffee_clicker_data', JSON.stringify(window.data))
-  console.log('data has been saved!')
+  try{
+    window.localStorage.setItem('coffee_clicker_data', JSON.stringify(window.data))
+  }catch(err)
+  {
+    //localStorage is saved in browser properly, may has some issues with mocha permissions
+    //"localStorage is not available for opaque origins"
+  }
 }
 //stores coffee data every 10 seconds
 setInterval(() => {
@@ -302,6 +347,7 @@ if (typeof process === 'undefined') {
 
   //update the cps view from loaded/generated data
   updateCPSView(data.totalCPS);
+  updateBonusCPSView(calculateBonusCPS(data));
  
   //render the coffee producers from loaded/generated data
   renderProducers(data);
